@@ -78,6 +78,7 @@ def test_terminal_cwd_pinned_to_workspace(monkeypatch, tmp_path):
     assert captured["cwd"] == str(workspace)
     assert captured["env"]["HERMES_KANBAN_WORKSPACE"] == str(workspace)
 
+
 def test_terminal_cwd_not_pinned_for_nonexistent_workspace(monkeypatch, tmp_path):
     """A non-directory workspace must not become the worker's TERMINAL_CWD.
 
