@@ -41,6 +41,11 @@ def _make_codex_agent(
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     (tmp_path / ".env").write_text("", encoding="utf-8")
     (tmp_path / "config.yaml").write_text("{}\n", encoding="utf-8")
+    # Every test here reasons about the built-in TTFB defaults; a developer shell override
+    # must not leak in (tests that need an override setenv it after this).
+    for name in ("HERMES_CODEX_TTFB_TIMEOUT_SECONDS", "HERMES_CODEX_TTFB_MAX_SECONDS",
+                 "HERMES_CODEX_TTFB_DISABLE_ABOVE_TOKENS", "HERMES_CODEX_TTFB_STRICT"):
+        monkeypatch.delenv(name, raising=False)
     from run_agent import AIAgent
 
     agent = AIAgent(
@@ -425,7 +430,7 @@ def test_wait_notice_omits_reconnect_when_all_deadlines_are_non_finite(
 
 
 def test_moa_heartbeat_survives_infinite_stale_timeout(monkeypatch):
-    """The full 100-poll MoA heartbeat must leave a healthy call running."""
+    """A MoA silence notice must leave an unbounded healthy call running."""
     from agent import chat_completion_helpers as h
 
     notices: list[str] = []
@@ -441,8 +446,11 @@ def test_moa_heartbeat_survives_infinite_stale_timeout(monkeypatch):
         _emit_wait_notice=notices.append,
     )
 
+    now = [1000.0]
+    monkeypatch.setattr(h.time, "time", lambda: now[0])
+
     class HeartbeatThread:
-        """Keep the synthetic worker alive through one heartbeat."""
+        """Keep the synthetic worker alive through the first silence notice."""
 
         def __init__(self, *, target, daemon):
             self._polls = 0
@@ -452,11 +460,11 @@ def test_moa_heartbeat_survives_infinite_stale_timeout(monkeypatch):
             pass
 
         def join(self, timeout=None):
-            pass
+            now[0] = round(now[0] + timeout, 1)
 
         def is_alive(self):
             self._polls += 1
-            if self._polls == 101:
+            if self._polls == 201:
                 self._target()
                 return False
             return True
@@ -492,6 +500,9 @@ def test_wait_notice_formatting_error_does_not_abort_request(monkeypatch):
         _emit_wait_notice=lambda _message: None,
     )
 
+    now = [1000.0]
+    monkeypatch.setattr(h.time, "time", lambda: now[0])
+
     class HeartbeatThread:
         def __init__(self, *, target, daemon):
             self._polls = 0
@@ -501,11 +512,11 @@ def test_wait_notice_formatting_error_does_not_abort_request(monkeypatch):
             pass
 
         def join(self, timeout=None):
-            pass
+            now[0] = round(now[0] + timeout, 1)
 
         def is_alive(self):
             self._polls += 1
-            if self._polls == 101:
+            if self._polls == 201:
                 self._target()
                 return False
             return True
@@ -587,3 +598,35 @@ def test_large_codex_request_hard_ceiling_reclaims_silent_stall(tmp_path, monkey
         assert "with no response" in str(excinfo.value)
     finally:
         stop["flag"] = True
+
+
+def test_large_request_keeps_scaled_ttfb_instead_of_recapping(tmp_path, monkeypatch):
+    """#91621 regression: with no TTFB env overrides, a >100k-token openai-codex
+    request scales the no-byte cutoff up to the 180s idle default — the cap must
+    not immediately claw it back to 120s and kill a healthy prefill."""
+    from agent import chat_completion_helpers as h
+
+    agent = _make_codex_agent(tmp_path, monkeypatch)
+    agent.reasoning_config = {"enabled": False}  # no effort floor: isolate the cap interaction
+
+    huge_input = "x" * 440_000  # ~110k estimated tokens → largest idle bucket
+    wd = h._resolve_nonstream_watchdogs(agent, {"model": "gpt-5.5", "input": huge_input})
+
+    assert wd.est_tokens > 100_000, f"fixture too small: ~{wd.est_tokens} tokens"
+    assert wd.ttfb_enabled
+    assert wd.ttfb_timeout == 180.0, f"scale-up nullified by the cap: {wd.ttfb_timeout}"
+
+
+def test_explicit_ttfb_max_seconds_still_caps(tmp_path, monkeypatch):
+    """An explicit HERMES_CODEX_TTFB_MAX_SECONDS override still bounds the
+    scaled cutoff."""
+    from agent import chat_completion_helpers as h
+
+    agent = _make_codex_agent(tmp_path, monkeypatch)
+    agent.reasoning_config = {"enabled": False}
+    monkeypatch.setenv("HERMES_CODEX_TTFB_MAX_SECONDS", "90")
+
+    huge_input = "x" * 440_000
+    wd = h._resolve_nonstream_watchdogs(agent, {"model": "gpt-5.5", "input": huge_input})
+
+    assert wd.ttfb_timeout == 90.0, f"explicit cap ignored: {wd.ttfb_timeout}"
