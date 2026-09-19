@@ -364,7 +364,9 @@ def test_real_child_cannot_heartbeat_or_trigger_parent_stop_guard(monkeypatch, t
     from tools import delegate_tool
     from tools import kanban_tools as kt
 
-    conn = kb.connect()
+    from hermes_cli import kanban_db_connect as kbc
+
+    conn = kbc.connect()
     try:
         heartbeat_events_before = len(
             [event for event in kb.list_events(conn, tid) if event.kind == "heartbeat"]
@@ -372,14 +374,14 @@ def test_real_child_cannot_heartbeat_or_trigger_parent_stop_guard(monkeypatch, t
     finally:
         conn.close()
 
-    real_connect = kt._connect
+    real_connect = kbc.connect
     connect_contexts = []
 
     def tracked_connect(*args, **kwargs):
         connect_contexts.append(is_delegated_child_process_context())
         return real_connect(*args, **kwargs)
 
-    monkeypatch.setattr(kt, "_connect", tracked_connect)
+    monkeypatch.setattr(kbc, "connect", tracked_connect)
     monkeypatch.setattr(kt, "_AUTO_HEARTBEAT_MIN_INTERVAL_SECONDS", 0.0)
     monkeypatch.setattr(kt, "_auto_heartbeat_last_attempt", 0.0)
     monkeypatch.setattr(delegate_tool, "_HEARTBEAT_INTERVAL", 0.01)
@@ -454,7 +456,7 @@ def test_real_child_cannot_heartbeat_or_trigger_parent_stop_guard(monkeypatch, t
     assert connect_contexts
     assert not any(connect_contexts)
 
-    conn = kb.connect()
+    conn = kbc.connect()
     try:
         heartbeat_events_after_child = len(
             [event for event in kb.list_events(conn, tid) if event.kind == "heartbeat"]
@@ -471,7 +473,7 @@ def test_real_child_cannot_heartbeat_or_trigger_parent_stop_guard(monkeypatch, t
     kt._auto_heartbeat_last_attempt = 0.0
     assert kt.heartbeat_current_worker_from_env() is True
 
-    conn = kb.connect()
+    conn = kbc.connect()
     try:
         heartbeat_events_after_parent = len(
             [event for event in kb.list_events(conn, tid) if event.kind == "heartbeat"]
