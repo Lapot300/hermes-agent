@@ -302,13 +302,24 @@ class TestValidateSignature:
         })
         assert adapter._validate_signature(req, body, secret) is False
 
-    def test_validate_invalid_v1_does_not_fall_back_to_bearer(self):
-        """A present legacy V1 signature must validate rather than fall back."""
+    @pytest.mark.parametrize("auth_headers", [
+        {"svix-signature": "v1,invalid"},
+        {"webhook-signature": "v1,invalid"},
+        {"linear-signature": "0" * 64},
+        {"X-Hub-Signature-256": "sha256=" + "0" * 64},
+        {"X-Gitlab-Token": "wrong"},
+        {"X-Webhook-Signature-V2": "0" * 64},
+        {"X-Webhook-Signature-V2": "0" * 64, "X-Webhook-Timestamp": "invalid"},
+        {"X-Webhook-Signature-V2": "0" * 64, "X-Webhook-Timestamp": "1"},
+        {"X-Webhook-Signature": "0" * 64},
+    ])
+    def test_invalid_signature_does_not_fall_back_to_bearer(self, auth_headers):
+        """Each recognized earlier auth scheme must validate rather than use Bearer."""
         adapter = _make_adapter()
         body = b'{"event": "push"}'
         secret = "generic-secret"
         req = _mock_request(headers={
-            "X-Webhook-Signature": "0" * 64,
+            **auth_headers,
             "Authorization": f"Bearer {secret}",
         })
         assert adapter._validate_signature(req, body, secret) is False

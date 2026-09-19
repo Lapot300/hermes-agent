@@ -53,8 +53,9 @@ def test_webhook_base_url_maps_wildcard_hosts_to_localhost(monkeypatch, host):
 
 
 class TestSubscribe:
-    def test_basic_create(self, capsys):
-        webhook_command(_make_args(webhook_action="subscribe", name="test-hook"))
+    @pytest.mark.parametrize("script", ["", "filter_payload.py"])
+    def test_basic_create(self, capsys, script):
+        webhook_command(_make_args(webhook_action="subscribe", name="test-hook", script=script))
         out = capsys.readouterr().out
         assert "Created" in out
         assert "/webhooks/test-hook" in out
@@ -63,6 +64,11 @@ class TestSubscribe:
         assert "Bearer scheme" in out
         subs = _load_subscriptions()
         assert "test-hook" in subs
+        if script:
+            assert subs["test-hook"]["script"] == script
+            assert f"Script: {script}" in out
+        else:
+            assert "script" not in subs["test-hook"]
 
 
     def test_custom_secret(self):
