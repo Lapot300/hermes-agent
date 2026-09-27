@@ -2841,13 +2841,15 @@ def _default_spawn(task: Task, workspace: str, *, board: Optional[str] = None) -
         # A multiplexer dispatching for another profile must not hand it the launch
         # profile's .env settings / TERMINAL_* policy — a standalone dispatcher never would.
         strip_launch_profile_env(env, profile_home)
-    # The gateway bridged its own terminal config before switching profiles.
-    # Let the child load the assignee's backend and forwarding allowlist;
-    # task-owned cwd and runtime pins are applied below, after this cleanup.
-    from hermes_cli.config import TERMINAL_CONFIG_ENV_MAP
+    else:
+        # Resolution is deferred to the child, but the launch profile's terminal
+        # policy must not follow it. Task-owned cwd/runtime pins are applied below.
+        from hermes_cli.config import TERMINAL_CONFIG_ENV_MAP
 
-    for env_var in TERMINAL_CONFIG_ENV_MAP.values():
-        env.pop(env_var, None)
+        terminal_names = set(TERMINAL_CONFIG_ENV_MAP.values())
+        for key in list(env):
+            if key.upper() in terminal_names:
+                env.pop(key, None)
     if task.tenant:
         env["HERMES_TENANT"] = task.tenant
     env["HERMES_KANBAN_TASK"] = task.id
