@@ -3,6 +3,19 @@ self-scheduled reminders, isolated sessions. The gateway daemon (``hermes gatewa
 the scheduler every 60 seconds; a file lock prevents duplicate execution across processes.
 """
 
+import sys
+
+# Python imports this package before ``-m cron.scheduler``. The gateway's
+# sanitized worker environment pins the source tree, not PM's dependencies.
+# Select and lease this install's committed generation before cron.jobs imports
+# third-party packages. Do not run the CLI bootstrap: update completion/repair
+# can replace the process and is not owned by a finite cron worker.
+if "--external-worker-file" in sys.argv:
+    from pathlib import Path
+    from pm.environments import activate_dependencies
+
+    activate_dependencies(Path(__file__).resolve().parents[1])
+
 from cron.jobs import (
     create_job,
     get_job,
