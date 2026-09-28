@@ -40,7 +40,11 @@ def test_package_entry_activates_dependencies_without_cli_bootstrap(tmp_path, ex
     (state / "facts.json").write_text(json.dumps({
         "packages": {"venv": {"environment": str(venv)}}
     }))
-    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path / "user"),
+    user = tmp_path / "user"
+    user.mkdir()
+    # Native Windows resolves Path.home() from USERPROFILE rather than HOME.
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(user),
+           "USERPROFILE": str(user),
            "HERMES_HOME": str(home), "HERMES_RUNTIME_DIR": str(tmp_path / "store"),
            "TMPDIR": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"}
     for key in ("SYSTEMROOT", "WINDIR"):
