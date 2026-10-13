@@ -284,6 +284,13 @@ class TestValidateSignature:
         assert adapter._validate_signature(req, body, secret) is False
 
     @pytest.mark.parametrize("auth_headers", [
+        {"svix-signature": ""},
+        {"webhook-signature": ""},
+        {"linear-signature": ""},
+        {"X-Hub-Signature-256": ""},
+        {"X-Gitlab-Token": ""},
+        {"X-Webhook-Signature-V2": ""},
+        {"X-Webhook-Signature": ""},
         {"svix-signature": "v1,invalid"},
         {"webhook-signature": "v1,invalid"},
         {"linear-signature": "0" * 64},
@@ -590,6 +597,20 @@ class TestHTTPHandling:
                 await writer.wait_closed()
             await server.close()
 
+        adapter.handle_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_signature_header_does_not_fall_back_to_bearer_over_http(self):
+        """An actual empty HTTP header must not authorize a weaker fallback."""
+        secret = "http-route-secret"
+        adapter = _make_adapter(routes={"test": {"secret": secret, "prompt": "hi"}})
+        adapter.handle_message = AsyncMock()
+        async with TestClient(TestServer(_create_app(adapter))) as cli:
+            response = await cli.post("/webhooks/test", json={"data": "value"}, headers={
+                "X-Webhook-Signature-V2": "",
+                "Authorization": f"Bearer {secret}",
+            })
+            assert response.status == 401
         adapter.handle_message.assert_not_called()
 
     @pytest.mark.asyncio
