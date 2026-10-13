@@ -57,13 +57,12 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-function CreatedWebhookDetails({
-  created,
-  onClose,
-}: {
+interface CreatedWebhookDetailsProps {
   created: CreatedWebhook;
   onClose: () => void;
-}) {
+}
+
+function CreatedWebhookDetails({ created, onClose }: CreatedWebhookDetailsProps) {
   return (
     <div className="p-5 grid gap-4">
       <p className="text-sm text-muted-foreground">
