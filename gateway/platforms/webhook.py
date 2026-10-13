@@ -820,6 +820,15 @@ class WebhookAdapter(BasePlatformAdapter):
                                "'X-Webhook-Signature-V2' (HMAC-SHA256 of '<timestamp>.<body>').", route_name)
             return _hmac_str_equal(generic_sig, _hex_hmac(secret, body))
         # Only consider Bearer after the existing signature/token schemes; invalid V2/V1 never falls back.
+        # Empty signature headers are still attempted credentials. Keep earlier scheme
+        # handling unchanged, but do not let the new fallback authorize their rejection.
+        signature_headers = {
+            "svix-signature", "webhook-signature", "linear-signature",
+            "x-hub-signature-256", "x-gitlab-token",
+            "x-webhook-signature-v2", "x-webhook-signature",
+        }
+        if signature_headers.intersection(name.lower() for name in headers):
+            return False
         auth_header = headers.get("Authorization", "")
         auth_scheme, _, auth_token = auth_header.partition(" ")
         if auth_scheme.lower() == "bearer" and auth_token:
