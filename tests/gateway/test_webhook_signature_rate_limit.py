@@ -140,7 +140,8 @@ class TestSignatureBeforeRateLimit:
         assert len(captured_events) == 1
 
     @pytest.mark.asyncio
-    async def test_authorization_bearer_token_is_accepted(self):
+    @pytest.mark.parametrize("secret_scope", ["route", "global"])
+    async def test_authorization_bearer_token_is_accepted(self, secret_scope):
         """Accept Authorization: Bearer *** as plain route-secret auth."""
         secret = "test-secret-key"
         route_name = "test-route"
@@ -152,7 +153,9 @@ class TestSignatureBeforeRateLimit:
                 "deliver": "log",
             }
         }
-        adapter = _make_adapter(routes)
+        if secret_scope == "global":
+            routes[route_name].pop("secret")
+        adapter = _make_adapter(routes, secret=secret if secret_scope == "global" else "")
 
         captured_events = []
 
