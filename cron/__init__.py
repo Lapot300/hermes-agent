@@ -3,18 +3,12 @@ self-scheduled reminders, isolated sessions. The gateway daemon (``hermes gatewa
 the scheduler every 60 seconds; a file lock prevents duplicate execution across processes.
 """
 
-import sys
+# The restart-safe external worker runs as ``-m cron.scheduler``, which executes this package
+# first: boot PM dependencies before ``cron.jobs`` reaches a third-party import. A no-op
+# unless ``_launch_external_cron_worker`` marked this process. See cron/worker_bootstrap.py.
+from cron.worker_bootstrap import worker_bootstrap as _boot_external_worker
 
-# Python imports this package before ``-m cron.scheduler``. The gateway's
-# sanitized worker environment pins the source tree, not PM's dependencies.
-# Select and lease this install's committed generation before cron.jobs imports
-# third-party packages. Do not run the CLI bootstrap: update completion/repair
-# can replace the process and is not owned by a finite cron worker.
-if "--external-worker-file" in sys.argv:
-    from pathlib import Path
-    from pm.environments import activate_dependencies
-
-    activate_dependencies(Path(__file__).resolve().parents[1])
+_boot_external_worker()
 
 from cron.jobs import (
     create_job,
@@ -31,15 +25,15 @@ from cron.jobs import (
 from cron.scheduler import tick
 
 __all__ = [
+    "JOBS_FILE",
     "create_job",
     "get_job",
     "list_jobs",
-    "remove_job",
-    "update_job",
     "pause_job",
-    "resume_job",
-    "trigger_job",
     "rearm_oneshot",
+    "remove_job",
+    "resume_job",
     "tick",
-    "JOBS_FILE",
+    "trigger_job",
+    "update_job",
 ]
