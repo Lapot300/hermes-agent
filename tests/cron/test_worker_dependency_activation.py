@@ -55,7 +55,7 @@ def test_package_entry_activates_dependencies_without_cli_bootstrap(tmp_path, ex
     child = subprocess.run(
         [str(Path(getattr(sys, "_base_executable", sys.executable)).resolve()),
          "-I", "-B", "-c", code], env=env, cwd=tmp_path,
-        capture_output=True, text=True, timeout=30,
+        capture_output=True, text=True, timeout=30, check=False,
     )
     assert child.returncode == 0, child.stderr
     assert child.stdout.strip() == str(external)
