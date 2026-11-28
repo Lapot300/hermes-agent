@@ -262,6 +262,17 @@ def _set_route_mirror(route, args):
         route["mirror_to_session"] = True
 
 
+def _print_subscription_auth(route):
+    """Explain the stored authentication pin without exposing the route secret."""
+    if route.get("signature") in (None, "bearer"):
+        print("  Send Authorization: Bearer <stored secret> for fixed-token providers.")
+        print("  Use TLS; Bearer tokens have no replay protection.")
+    else:
+        print("  Use the route's stored secret with its pinned signature scheme.")
+        print("  For fixed-token providers, subscribe with --signature bearer instead.")
+
+
+
 def _cmd_subscribe(args):
     name = args.name.strip().lower().replace(" ", "-")
     if error := _subscribe_input_error(name, args.deliver or "log"):
@@ -373,12 +384,7 @@ def _cmd_subscribe(args):
     if route.get("script"):
         print(f"  Script: {route['script']}")
     print("\n  Configure your service to POST to the URL above.")
-    if route.get("signature") in (None, "bearer"):
-        print("  Send Authorization: Bearer <stored secret> for fixed-token providers.")
-        print("  Use TLS; Bearer tokens have no replay protection.")
-    else:
-        print("  Use the route's stored secret with its pinned signature scheme.")
-        print("  For fixed-token providers, subscribe with --signature bearer instead.")
+    _print_subscription_auth(route)
     print("  The gateway must be running to receive events (hermes gateway run).\n")
 
 
