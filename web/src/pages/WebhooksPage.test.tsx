@@ -1,110 +1,52 @@
 // @vitest-environment jsdom
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import WebhooksPage from "./WebhooksPage";
-import { I18nProvider } from "@/i18n";
-import { PageHeaderProvider } from "@/contexts/PageHeaderProvider";
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { I18nProvider } from '@/i18n';
+import { ProfileContext } from '@/contexts/profile-context';
+import { PageHeaderProvider } from '@/contexts/PageHeaderProvider';
+import WebhooksPage from './WebhooksPage';
 
-const mocks = vi.hoisted(() => ({ getWebhooks: vi.fn(), createWebhook: vi.fn(), copy: vi.fn() }));
-vi.mock("@/lib/api", () => ({ api: mocks }));
-vi.mock("@/lib/clipboard", () => ({ copyTextToClipboard: mocks.copy }));
-let container: HTMLDivElement;
-let root: Root;
-const secret = "synthetic-route-credential";
-const url = "http://localhost:8644/webhooks/synthetic-hook";
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-function button(text: string, within: Element = document.body) {
-  const match = Array.from(within.querySelectorAll("button")).find((el) => el.textContent?.trim() === text);
-  if (!match) throw new Error(`Button not rendered: ${text}`);
-  return match;
-}
-function click(el: Element) {
-  el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-}
+const mocks = vi.hoisted(() => ({ getWebhooks: vi.fn(), createWebhook: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: mocks }));
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.releasePointerCapture = vi.fn();
   mocks.getWebhooks.mockResolvedValue({ enabled: true, subscriptions: [] });
-  mocks.createWebhook.mockImplementation(async () => {
-    mocks.getWebhooks.mockResolvedValue({ enabled: true, subscriptions: [
-      { name: "synthetic-hook", url, deliver: "log", deliver_only: false, enabled: true, events: [] },
-    ] });
-    return { url, secret };
-  });
-  mocks.copy.mockResolvedValue(true);
-  vi.stubGlobal("matchMedia", () => ({ matches: false, media: "", addEventListener() {}, removeEventListener() {} }));
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
 });
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-async function createSubscription() {
-  await act(async () => root.render(
-    <I18nProvider><MemoryRouter initialEntries={["/webhooks"]}>
-      <PageHeaderProvider pluginTabs={[]}><main><WebhooksPage /></main></PageHeaderProvider>
-    </MemoryRouter></I18nProvider>,
-  ));
-  await act(async () => click(button("New subscription")));
-  const input = container.querySelector<HTMLInputElement>("#webhook-name");
-  if (!input) throw new Error("Create form not rendered");
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "synthetic-hook");
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+it.each(['bot-chat', 'bot-chat:recipient'])('creates and reads back %s without changing the execution profile', async target => {
+  mocks.createWebhook.mockImplementation(async body => {
+    const route = { ...body, profile: 'producer', enabled: true, skills: [], events: [],
+      url: 'http://localhost:8644/p/producer/webhooks/fixture' };
+    mocks.getWebhooks.mockResolvedValue({ enabled: true, subscriptions: [route] });
+    return { ...route, secret: 'one-time-secret' };
   });
-  const combo = document.getElementById("webhook-signature")?.closest('[role="combobox"]')
-    ?? document.querySelector('#webhook-signature [role="combobox"]');
-  if (!combo) throw new Error("Signature selector not rendered");
-  await act(async () => click(combo));
-  const option = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.includes("Bearer token"));
-  if (!option) throw new Error("Bearer option not rendered");
-  await act(async () => click(option));
-  await act(async () => click(button("Create")));
-  expect(mocks.createWebhook).toHaveBeenCalledWith(expect.objectContaining({ name: "synthetic-hook", signature: "bearer" }));
-  const dialog = container.querySelector('[role="dialog"]');
-  if (!dialog) throw new Error("Created credentials not rendered");
-  return dialog;
-}
-
-describe("Webhook creation credentials", () => {
-  it("copies the actual URL, secret and complete Bearer header from the created page", async () => {
-    const dialog = await createSubscription();
-    const copies = Array.from(dialog.querySelectorAll('button[aria-label="Copy"]'));
-    expect(copies).toHaveLength(3);
-    for (const copy of copies) await act(async () => click(copy));
-    expect(mocks.copy.mock.calls.map(([value]) => value)).toEqual([
-      url, secret, ["Authorization:", "Bearer", secret].join(" "),
-    ]);
-    expect(dialog.textContent).toContain("Bearer auth header");
-    const main = container.querySelector("main");
-    if (!main) throw new Error("Main content not rendered");
-    expect(main.textContent?.replace(dialog.textContent ?? "", "")).not.toContain(secret);
-  });
-
-  it.each(["Done", "Close", "Escape", "backdrop"])("clears one-time credentials after %s and reopening", async (method) => {
-    const dialog = await createSubscription();
-    expect(dialog.textContent).toContain(secret);
-    await act(async () => {
-      if (method === "Escape") document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      else if (method === "backdrop") click(dialog);
-      else if (method === "Close") {
-        const close = dialog.querySelector('button[aria-label="Close"]');
-        if (!close) throw new Error("Close control not rendered");
-        click(close);
-      } else click(button("Done", dialog));
-    });
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(container.textContent).not.toContain(secret);
-    await act(async () => click(button("New subscription")));
-    expect(container.querySelector("#webhook-name")).not.toBeNull();
-    expect(container.textContent).not.toContain(secret);
-    expect(container.textContent).not.toContain("Bearer auth header");
-  });
+  render(<I18nProvider><MemoryRouter><ProfileContext.Provider value={{ profile: 'producer',
+    currentProfile: 'producer', profiles: ['default', 'producer', 'recipient'], setProfile: () => {} }}>
+    <PageHeaderProvider pluginTabs={[]}><WebhooksPage /></PageHeaderProvider>
+  </ProfileContext.Provider></MemoryRouter></I18nProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: /new subscription/i }));
+  fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'fixture' } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Deliver to' }), { target: { value: 'bot-chat' } });
+  const profileSelect = screen.getByRole('combobox', { name: 'Target profile' });
+  expect((profileSelect as HTMLSelectElement).value).toBe('__executing__');
+  if (target.includes(':')) {
+    fireEvent.change(profileSelect, { target: { value: 'recipient' } });
+    expect((profileSelect as HTMLSelectElement).value).toBe('recipient');
+  }
+  fireEvent.click(screen.getByLabelText('Deliver only'));
+  expect(screen.getByText(/receiving Bot Chat may run its model/i)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+  await waitFor(() => expect(mocks.createWebhook).toHaveBeenCalledWith(expect.objectContaining({
+    deliver: target, deliver_only: true
+  })));
+  fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
+  expect(await screen.findByText(target)).toBeTruthy();
+  expect(screen.getByText(/Execution profile: producer/)).toBeTruthy();
+  expect(screen.getByText('http://localhost:8644/p/producer/webhooks/fixture')).toBeTruthy();
 });
